@@ -1,5 +1,6 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import type { AudioBus } from '../../audio/bus.ts';
+import type { Boil } from '../boil.ts';
 import { Button } from '../button.ts';
 import { squiggle } from '../ink.ts';
 import { body, MUTED, title } from '../theme.ts';
@@ -27,7 +28,7 @@ export class MainMenu extends Container {
   #howToPlay: HowToPlayOverlay;
   #prefs: PrefsOverlay;
 
-  constructor(audio: AudioBus, handlers: MenuHandlers) {
+  constructor(audio: AudioBus, boil: Boil, handlers: MenuHandlers) {
     super();
     this.#audio = audio;
 
@@ -67,7 +68,7 @@ export class MainMenu extends Container {
     });
 
     this.#howToPlay = new HowToPlayOverlay(() => this.closeOverlay());
-    this.#prefs = new PrefsOverlay(audio, () => this.closeOverlay());
+    this.#prefs = new PrefsOverlay(audio, boil, () => this.closeOverlay());
     this.#howToPlay.visible = false;
     this.#prefs.visible = false;
     this.addChild(this.#howToPlay, this.#prefs);

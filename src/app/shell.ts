@@ -2,6 +2,8 @@ import { Container, type Application } from 'pixi.js';
 import { AudioBus, MUSIC_FADE_MS } from '../audio/bus.ts';
 import { DEFAULT_RULESET } from '../core/ruleset.ts';
 import type { MatchRecord } from '../referee/referee.ts';
+import { PrefsStore } from '../prefs.ts';
+import { Boil } from '../render/boil.ts';
 import { Button } from '../render/button.ts';
 import { Curtain } from '../render/screens/curtain.ts';
 import { MainMenu } from '../render/screens/menu.ts';
@@ -24,11 +26,14 @@ type ShellState = 'splash' | 'menu' | 'fight' | 'transition';
  */
 export class Shell {
   #app: Application;
-  #audio = new AudioBus();
+  // Declared ahead of the bus, which reads its audio levels out of it.
+  #prefs = new PrefsStore();
+  #audio = new AudioBus(this.#prefs);
   #screens = new Container();
   #hud = new Container();
   #curtain = new Curtain();
   #splash = new SplashScreen();
+  #boil: Boil;
   #menu: MainMenu;
   #game: Game;
 
@@ -44,7 +49,12 @@ export class Shell {
     this.#game = new Game(app, root, this.#audio);
     root.addChild(this.#hud, this.#curtain);
 
-    this.#menu = new MainMenu(this.#audio, { onSolo: () => this.startFight() });
+    // Wraps the whole sheet, so it is set up once here and never mentioned again.
+    this.#boil = new Boil(app, root, this.#prefs);
+
+    this.#menu = new MainMenu(this.#audio, this.#boil, {
+      onSolo: () => this.startFight(),
+    });
     this.#splash.visible = false;
     this.#menu.visible = false;
     this.#screens.addChild(this.#splash, this.#menu);
@@ -91,6 +101,7 @@ export class Shell {
     this.#app.ticker.remove(this.#tick);
     window.removeEventListener('pointerdown', this.#onGesture);
     window.removeEventListener('keydown', this.#onKeyDown);
+    this.#boil.destroy();
     this.#game.destroy();
   }
 
@@ -175,6 +186,7 @@ export class Shell {
 
   #tick = (): void => {
     const deltaMs = this.#app.ticker.deltaMS;
+    this.#boil.update(deltaMs);
     this.#curtain.update(deltaMs);
     this.#menu.update(deltaMs);
   };

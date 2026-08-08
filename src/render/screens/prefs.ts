@@ -1,5 +1,6 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import type { AudioBus } from '../../audio/bus.ts';
+import type { Boil } from '../boil.ts';
 import { Button } from '../button.ts';
 import { squiggle } from '../ink.ts';
 import { Slider } from '../slider.ts';
@@ -10,20 +11,24 @@ const TRACK_WIDTH = 520;
 const TRACK_X = 760;
 
 /**
- * The player's own audio choices. The RuleSet is not here and never will be —
- * that is tuning, lives in the dev panel, and changes how a Fight plays.
+ * The player's own presentation choices, audible and visible. The RuleSet is not
+ * here and never will be — that is tuning, lives in the dev panel, and changes
+ * how a Fight plays.
  */
 export class PrefsOverlay extends Container {
   #audio: AudioBus;
+  #boil: Boil;
   #music: Slider;
   #sfx: Slider;
   #musicReadout: Text;
   #sfxReadout: Text;
+  #wobble: Button;
   #mute: Button;
 
-  constructor(audio: AudioBus, onBack: () => void) {
+  constructor(audio: AudioBus, boil: Boil, onBack: () => void) {
     super();
     this.#audio = audio;
+    this.#boil = boil;
 
     this.addChild(
       new Graphics().rect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT).fill(PAPER),
@@ -50,16 +55,24 @@ export class PrefsOverlay extends Container {
     });
     this.#sfxReadout = this.#row('SOUND', this.#sfx, 560);
 
+    this.#wobble = new Button('', 160, 68, () => {
+      this.#boil.enabled = !this.#boil.enabled;
+      this.sync();
+    }, { fontSize: 30 });
+    // Left edge on the slider tracks, since the Button is positioned by centre.
+    this.#wobble.position.set(TRACK_X + 80, 690);
+    this.#label('WOBBLE EFFECTS', 690);
+
     this.#mute = new Button('', 300, 74, () => {
       this.#audio.muted = !this.#audio.muted;
       this.sync();
     }, { fontSize: 30 });
-    this.#mute.position.set(VIRTUAL_WIDTH / 2, 720);
+    this.#mute.position.set(VIRTUAL_WIDTH / 2, 810);
 
     const back = new Button('BACK', 240, 74, onBack, { fontSize: 30 });
-    back.position.set(VIRTUAL_WIDTH / 2, 900);
+    back.position.set(VIRTUAL_WIDTH / 2, 940);
 
-    this.addChild(this.#mute, back);
+    this.addChild(this.#wobble, this.#mute, back);
     this.sync();
   }
 
@@ -67,6 +80,7 @@ export class PrefsOverlay extends Container {
   sync(): void {
     this.#music.value = this.#audio.musicVolume;
     this.#sfx.value = this.#audio.sfxVolume;
+    this.#wobble.setLabel(this.#boil.enabled ? 'ON' : 'OFF');
     this.#mute.setLabel(this.#audio.muted ? 'UNMUTE' : 'MUTE');
     this.#readouts();
   }
@@ -77,18 +91,22 @@ export class PrefsOverlay extends Container {
   }
 
   #row(label: string, slider: Slider, y: number): Text {
-    const name = new Text({ text: label, style: title(34) });
-    name.anchor.set(1, 0.5);
-    name.position.set(TRACK_X - 60, y);
-
+    this.#label(label, y);
     slider.position.set(TRACK_X, y);
 
     const readout = new Text({ text: '', style: body(28, '700', MUTED) });
     readout.anchor.set(0, 0.5);
     readout.position.set(TRACK_X + TRACK_WIDTH + 50, y);
 
-    this.addChild(name, slider, readout);
+    this.addChild(slider, readout);
     return readout;
+  }
+
+  #label(label: string, y: number): void {
+    const name = new Text({ text: label, style: title(34) });
+    name.anchor.set(1, 0.5);
+    name.position.set(TRACK_X - 60, y);
+    this.addChild(name);
   }
 }
 

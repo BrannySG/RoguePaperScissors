@@ -1,4 +1,4 @@
-import { loadPrefs, savePrefs, type Prefs } from './prefs.ts';
+import type { PrefsStore } from '../prefs.ts';
 
 export type SoundCue =
   | 'hover'
@@ -65,12 +65,16 @@ export class AudioBus {
   #sfxGain: GainNode | null = null;
   #noiseBuffer: AudioBuffer | null = null;
 
-  #prefs: Prefs = loadPrefs();
+  #prefs: PrefsStore;
 
   #buffers = new Map<MusicTrack, AudioBuffer>();
   #decoding = new Map<MusicTrack, Promise<AudioBuffer | null>>();
   #playing: PlayingTrack | null = null;
   #wanted: MusicTrack | null = null;
+
+  constructor(prefs: PrefsStore) {
+    this.#prefs = prefs;
+  }
 
   unlock(): void {
     if (this.#ctx === null) {
@@ -101,17 +105,12 @@ export class AudioBus {
     if (this.#ctx.state === 'suspended') void this.#ctx.resume();
   }
 
-  get prefs(): Readonly<Prefs> {
-    return this.#prefs;
-  }
-
   get muted(): boolean {
     return this.#prefs.muted;
   }
 
   set muted(value: boolean) {
-    this.#prefs = { ...this.#prefs, muted: value };
-    savePrefs(this.#prefs);
+    this.#prefs.muted = value;
     if (this.#master !== null) this.#ramp(this.#master.gain, value ? 0 : 1);
   }
 
@@ -120,10 +119,9 @@ export class AudioBus {
   }
 
   set musicVolume(value: number) {
-    const level = clamp01(value);
-    this.#prefs = { ...this.#prefs, music: level };
-    savePrefs(this.#prefs);
-    if (this.#musicGain !== null) this.#ramp(this.#musicGain.gain, level);
+    // Read back rather than reuse: the store owns the clamp.
+    this.#prefs.music = value;
+    if (this.#musicGain !== null) this.#ramp(this.#musicGain.gain, this.#prefs.music);
   }
 
   get sfxVolume(): number {
@@ -131,10 +129,8 @@ export class AudioBus {
   }
 
   set sfxVolume(value: number) {
-    const level = clamp01(value);
-    this.#prefs = { ...this.#prefs, sfx: level };
-    savePrefs(this.#prefs);
-    if (this.#sfxGain !== null) this.#ramp(this.#sfxGain.gain, level);
+    this.#prefs.sfx = value;
+    if (this.#sfxGain !== null) this.#ramp(this.#sfxGain.gain, this.#prefs.sfx);
   }
 
   /** Loops `track`, fading out whatever was playing. A no-op if it is already on. */
@@ -376,9 +372,4 @@ export class AudioBus {
     this.#noiseBuffer = buffer;
     return buffer;
   }
-}
-
-function clamp01(value: number): number {
-  if (Number.isNaN(value)) return 0;
-  return Math.min(1, Math.max(0, value));
 }

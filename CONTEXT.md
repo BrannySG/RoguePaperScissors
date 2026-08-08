@@ -109,5 +109,13 @@ The screen a player leaves to start a Fight and returns to when one is over. Not
 _Avoid_: home, lobby, title screen, front end
 
 **Prefs**:
-The player's own audio choices — mute, music volume, SFX volume. Kept across sessions, and unlike a RuleSet it changes nothing about how a Fight plays.
+The player's own presentation choices, audible and visible. Kept across sessions, and unlike a RuleSet it changes nothing about how a Fight plays.
 _Avoid_: settings, config, options, preferences
+
+**Boil**:
+The restless shimmer of every drawn line, as though each frame were redrawn by hand. Purely cosmetic, and switchable from Prefs.
+_Avoid_: shader, wobble, jitter, wiggle, shimmer, warp
+
+**Squiggle**:
+A wobble drawn into a single stroke and left there. Unlike the Boil it never moves, and it is authored per stroke rather than applied to everything.
+_Avoid_: scribble, wave, sketch line

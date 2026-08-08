@@ -34,8 +34,9 @@ export interface CardViewOptions {
 }
 
 /**
- * One card. Deliberately flat vector shapes plus the inked font rather than a
- * procedural sketch pass - see docs/adr/0003 and the plan's known risks.
+ * One card. Flat vector shapes plus the inked font; the hand-drawn restlessness
+ * comes from the Boil passing over the whole sheet rather than from anything
+ * sketched here - see docs/adr/0005.
  */
 export class CardView extends Container {
   readonly card: CardDef | null;
