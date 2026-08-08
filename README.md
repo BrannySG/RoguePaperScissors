@@ -22,7 +22,7 @@ npm run dev      # http://localhost:5173
 | `npm test` | Full suite |
 | `npm run sim` | Headless balance simulation |
 
-**Playing.** Click a card in the bottom-right fan, or press `1`–`5`. Cards `1`–`3` are your Cores. Press `R` to restart, `M` to mute, and `` ` `` to toggle the dev panel.
+**Playing.** Two Splash cards lead into the Main Menu; **SOLO** starts a Fight against the bot. Click a card in the bottom-right fan, or press `1`–`5`. Cards `1`–`3` are your Cores. Press `R` for a rematch, `ESC` for the Main Menu, `M` to mute, and `` ` `` to toggle the dev panel.
 
 ## How a Round works
 
@@ -42,10 +42,10 @@ src/
   cards/     the 13 starter cards, as data
   bot/       policies and the think-time driver
   referee/   the multiplayer seam: local now, networked later
-  render/    Pixi 8 view, fan maths, HUD, Clash cinema, draft screen
-  audio/     procedural one-shot cues, no asset files
+  render/    Pixi 8 view, fan maths, HUD, Clash cinema, draft screen, Splash and Menu
+  audio/     procedural one-shot cues, the two music tracks, and Prefs
   dev/       RuleSet panel, replay verification, simulation harness
-  app/       wiring and the only clock in the project
+  app/       the Shell (Splash, Menu, transitions) and the only clock in the project
 ```
 
 The load-bearing rule: **`core/` is pure.** `reduce(state, command, ruleSet) -> { state, events }`, with no access to `Math.random`, the clock, timers, or the DOM. Randomness comes from seeded streams held in the state; the countdown lives in `app/` and arrives as an explicit `timeout` command. That is what makes the renderer swappable, the balance testable headlessly, and multiplayer a matter of implementing `Referee` once.

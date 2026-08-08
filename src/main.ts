@@ -1,5 +1,4 @@
-import { Game } from './app/game.ts';
-import { DEFAULT_RULESET } from './core/ruleset.ts';
+import { Shell } from './app/shell.ts';
 import { loadFonts } from './render/fonts.ts';
 import { createViewport } from './render/viewport.ts';
 
@@ -10,12 +9,12 @@ async function boot(): Promise<void> {
 
   const { app, root } = await createViewport(document.body);
 
-  const game = new Game(app, root);
-  game.start({ seed: Math.floor(Date.now() % 1_000_000), ruleSet: DEFAULT_RULESET });
+  const shell = new Shell(app, root);
+  void shell.start();
 
   if (import.meta.env.DEV) {
     const { mountDevPanel } = await import('./dev/panel.ts');
-    mountDevPanel(game);
+    mountDevPanel(shell);
   }
 }
 

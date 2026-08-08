@@ -97,3 +97,17 @@ _Avoid_: buff, aura, passive, relic, standing
 **RuleSet**:
 The complete set of tunable rules and numbers a Fight is played under. Fights recorded under different RuleSets are not comparable.
 _Avoid_: config, settings, options, balance
+
+### Outside the Fight
+
+**Splash**:
+A title card shown once at boot, before the Main Menu. Carries a credit and nothing else.
+_Avoid_: intro, logo screen, loading screen
+
+**Main Menu**:
+The screen a player leaves to start a Fight and returns to when one is over. Not part of any Fight.
+_Avoid_: home, lobby, title screen, front end
+
+**Prefs**:
+The player's own audio choices — mute, music volume, SFX volume. Kept across sessions, and unlike a RuleSet it changes nothing about how a Fight plays.
+_Avoid_: settings, config, options, preferences

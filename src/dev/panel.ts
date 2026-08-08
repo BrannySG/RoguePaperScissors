@@ -1,4 +1,4 @@
-import type { Game } from '../app/game.ts';
+import type { Shell } from '../app/shell.ts';
 import { DEFAULT_RULESET, type RuleSet } from '../core/ruleset.ts';
 import { encodeRecord, verifyRecord } from './replay.ts';
 
@@ -25,7 +25,7 @@ const BUTTON_CSS =
  * tooling rather than game UI, is mounted only under `import.meta.env.DEV`, and
  * never ships. See docs/adr/0003.
  */
-export function mountDevPanel(game: Game): void {
+export function mountDevPanel(shell: Shell): void {
   const panel = document.createElement('div');
   panel.setAttribute('style', PANEL_CSS);
 
@@ -34,11 +34,11 @@ export function mountDevPanel(game: Game): void {
   heading.setAttribute('style', 'font-weight:700; margin-bottom:8px; letter-spacing:1px;');
   panel.appendChild(heading);
 
-  const seedInput = addRow(panel, 'seed', String(game.options.seed), 'number');
+  const seedInput = addRow(panel, 'seed', String(shell.fightOptions.seed), 'number');
   const inputs = new Map<keyof RuleSet, HTMLInputElement | HTMLSelectElement>();
 
   for (const key of Object.keys(DEFAULT_RULESET) as Array<keyof RuleSet>) {
-    const current = game.options.ruleSet[key];
+    const current = shell.fightOptions.ruleSet[key];
     const options = ENUM_OPTIONS[key];
 
     inputs.set(
@@ -51,7 +51,7 @@ export function mountDevPanel(game: Game): void {
 
   const status = document.createElement('div');
   status.setAttribute('style', 'margin-top:10px; min-height:32px; color:#8f8;');
-  panel.appendChild(makeButtons(() => readRuleSet(inputs), seedInput, game, status));
+  panel.appendChild(makeButtons(() => readRuleSet(inputs), seedInput, shell, status));
   panel.appendChild(status);
 
   document.body.appendChild(panel);
@@ -81,7 +81,7 @@ function readRuleSet(
 function makeButtons(
   readRules: () => RuleSet,
   seedInput: HTMLInputElement,
-  game: Game,
+  shell: Shell,
   status: HTMLElement,
 ): HTMLElement {
   const bar = document.createElement('div');
@@ -89,7 +89,7 @@ function makeButtons(
 
   bar.appendChild(
     button('APPLY + RESTART', () => {
-      game.start({ seed: Number(seedInput.value) || 1, ruleSet: readRules() });
+      shell.startFight({ seed: Number(seedInput.value) || 1, ruleSet: readRules() });
       status.textContent = 'Restarted.';
     }),
   );
@@ -98,14 +98,21 @@ function makeButtons(
     button('NEW SEED', () => {
       const seed = Math.floor(Math.random() * 1_000_000);
       seedInput.value = String(seed);
-      game.start({ seed, ruleSet: readRules() });
+      shell.startFight({ seed, ruleSet: readRules() });
       status.textContent = `Restarted on seed ${seed}.`;
     }),
   );
 
   bar.appendChild(
     button('VERIFY REPLAY', () => {
-      const result = verifyRecord(game.record);
+      const record = shell.record;
+      if (record === null) {
+        status.style.color = '#f88';
+        status.textContent = 'No Fight has been played yet.';
+        return;
+      }
+
+      const result = verifyRecord(record);
       status.style.color = result.ok ? '#8f8' : '#f88';
       status.textContent = result.ok
         ? `Replay matched across ${result.roundsChecked} checkpoints.`
@@ -115,7 +122,14 @@ function makeButtons(
 
   bar.appendChild(
     button('COPY REPLAY', () => {
-      void navigator.clipboard.writeText(encodeRecord(game.record));
+      const record = shell.record;
+      if (record === null) {
+        status.style.color = '#f88';
+        status.textContent = 'No Fight has been played yet.';
+        return;
+      }
+
+      void navigator.clipboard.writeText(encodeRecord(record));
       status.style.color = '#8f8';
       status.textContent = 'Recording copied to clipboard.';
     }),

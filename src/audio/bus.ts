@@ -1,3 +1,5 @@
+import { loadPrefs, savePrefs, type Prefs } from './prefs.ts';
+
 export type SoundCue =
   | 'hover'
   | 'commit'
@@ -32,45 +34,198 @@ interface NoiseOptions {
 
 const NOISE_SECONDS = 0.6;
 
+export type MusicTrack = 'menu' | 'fight';
+
+const MUSIC_SOURCES: Record<MusicTrack, string> = {
+  menu: '/audio/menu.ogg',
+  fight: '/audio/fight.ogg',
+};
+
+/** Long enough to read as a handover rather than a cut, short enough to skip. */
+export const MUSIC_FADE_MS = 1500;
+
+interface PlayingTrack {
+  track: MusicTrack;
+  source: AudioBufferSourceNode;
+  fade: GainNode;
+}
+
 /**
- * Every cue is synthesised on the fly rather than loaded, so the prototype
- * gains audio without gaining an asset pipeline. Browsers refuse to start an
- * AudioContext before a gesture, so nothing exists until `unlock` is called
- * from a real click or keypress and every cue is a no-op until then.
+ * Cues are synthesised on the fly rather than loaded; only the two music tracks
+ * are files. Browsers refuse to start an AudioContext before a gesture, so
+ * nothing exists until `unlock` is called from a real click or keypress — a
+ * track asked for before then is remembered and starts once the bus wakes up.
+ *
+ * The graph is master (mute) -> {music, sfx} (Prefs levels) -> per-track fade.
  */
 export class AudioBus {
   #ctx: AudioContext | null = null;
   #master: GainNode | null = null;
+  #musicGain: GainNode | null = null;
+  #sfxGain: GainNode | null = null;
   #noiseBuffer: AudioBuffer | null = null;
-  #muted = false;
+
+  #prefs: Prefs = loadPrefs();
+
+  #buffers = new Map<MusicTrack, AudioBuffer>();
+  #decoding = new Map<MusicTrack, Promise<AudioBuffer | null>>();
+  #playing: PlayingTrack | null = null;
+  #wanted: MusicTrack | null = null;
 
   unlock(): void {
     if (this.#ctx === null) {
       if (typeof AudioContext === 'undefined') return;
 
       const ctx = new AudioContext();
+
       const master = ctx.createGain();
-      master.gain.value = this.#muted ? 0 : 0.5;
+      master.gain.value = this.#prefs.muted ? 0 : 1;
       master.connect(ctx.destination);
+
+      const music = ctx.createGain();
+      music.gain.value = this.#prefs.music;
+      music.connect(master);
+
+      const sfx = ctx.createGain();
+      sfx.gain.value = this.#prefs.sfx;
+      sfx.connect(master);
 
       this.#ctx = ctx;
       this.#master = master;
+      this.#musicGain = music;
+      this.#sfxGain = sfx;
+
+      if (this.#wanted !== null) void this.#swap(this.#wanted, MUSIC_FADE_MS);
     }
 
     if (this.#ctx.state === 'suspended') void this.#ctx.resume();
   }
 
+  get prefs(): Readonly<Prefs> {
+    return this.#prefs;
+  }
+
   get muted(): boolean {
-    return this.#muted;
+    return this.#prefs.muted;
   }
 
   set muted(value: boolean) {
-    this.#muted = value;
-    if (this.#master !== null) this.#master.gain.value = value ? 0 : 0.5;
+    this.#prefs = { ...this.#prefs, muted: value };
+    savePrefs(this.#prefs);
+    if (this.#master !== null) this.#ramp(this.#master.gain, value ? 0 : 1);
+  }
+
+  get musicVolume(): number {
+    return this.#prefs.music;
+  }
+
+  set musicVolume(value: number) {
+    const level = clamp01(value);
+    this.#prefs = { ...this.#prefs, music: level };
+    savePrefs(this.#prefs);
+    if (this.#musicGain !== null) this.#ramp(this.#musicGain.gain, level);
+  }
+
+  get sfxVolume(): number {
+    return this.#prefs.sfx;
+  }
+
+  set sfxVolume(value: number) {
+    const level = clamp01(value);
+    this.#prefs = { ...this.#prefs, sfx: level };
+    savePrefs(this.#prefs);
+    if (this.#sfxGain !== null) this.#ramp(this.#sfxGain.gain, level);
+  }
+
+  /** Loops `track`, fading out whatever was playing. A no-op if it is already on. */
+  playMusic(track: MusicTrack, fadeMs = MUSIC_FADE_MS): void {
+    this.#wanted = track;
+    if (this.#playing?.track === track) return;
+    void this.#swap(track, fadeMs);
+  }
+
+  stopMusic(fadeMs = MUSIC_FADE_MS): void {
+    this.#wanted = null;
+    this.#fadeOutCurrent(fadeMs);
+  }
+
+  async #swap(track: MusicTrack, fadeMs: number): Promise<void> {
+    const ctx = this.#ctx;
+    const musicGain = this.#musicGain;
+    if (ctx === null || musicGain === null) return;
+
+    const buffer = await this.#buffer(track, ctx);
+    // Decoding takes long enough that the player can have moved on again.
+    if (buffer === null || this.#wanted !== track || this.#playing?.track === track) return;
+
+    this.#fadeOutCurrent(fadeMs);
+
+    const fade = ctx.createGain();
+    fade.gain.setValueAtTime(0.0001, ctx.currentTime);
+    fade.gain.linearRampToValueAtTime(1, ctx.currentTime + fadeMs / 1000);
+    fade.connect(musicGain);
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    source.connect(fade);
+    source.start();
+
+    this.#playing = { track, source, fade };
+  }
+
+  #fadeOutCurrent(fadeMs: number): void {
+    const current = this.#playing;
+    const ctx = this.#ctx;
+    if (current === null || ctx === null) return;
+
+    this.#playing = null;
+
+    const seconds = fadeMs / 1000;
+    const gain = current.fade.gain;
+    gain.cancelScheduledValues(ctx.currentTime);
+    gain.setValueAtTime(gain.value, ctx.currentTime);
+    gain.linearRampToValueAtTime(0.0001, ctx.currentTime + seconds);
+    current.source.stop(ctx.currentTime + seconds + 0.05);
+  }
+
+  async #buffer(track: MusicTrack, ctx: AudioContext): Promise<AudioBuffer | null> {
+    const cached = this.#buffers.get(track);
+    if (cached !== undefined) return cached;
+
+    let pending = this.#decoding.get(track);
+    if (pending === undefined) {
+      pending = (async () => {
+        try {
+          const response = await fetch(MUSIC_SOURCES[track]);
+          const decoded = await ctx.decodeAudioData(await response.arrayBuffer());
+          this.#buffers.set(track, decoded);
+          return decoded;
+        } catch {
+          // A missing or undecodable track leaves the game silent, not broken.
+          return null;
+        }
+      })();
+      this.#decoding.set(track, pending);
+    }
+
+    return pending;
+  }
+
+  #ramp(param: AudioParam, value: number, seconds = 0.05): void {
+    const ctx = this.#ctx;
+    if (ctx === null) {
+      param.value = value;
+      return;
+    }
+
+    param.cancelScheduledValues(ctx.currentTime);
+    param.setValueAtTime(param.value, ctx.currentTime);
+    param.linearRampToValueAtTime(value, ctx.currentTime + seconds);
   }
 
   play(cue: SoundCue): void {
-    if (this.#ctx === null || this.#muted) return;
+    if (this.#ctx === null || this.#prefs.muted) return;
 
     switch (cue) {
       case 'hover':
@@ -152,8 +307,8 @@ export class AudioBus {
 
   #tone(options: ToneOptions): void {
     const ctx = this.#ctx;
-    const master = this.#master;
-    if (ctx === null || master === null) return;
+    const out = this.#sfxGain;
+    if (ctx === null || out === null) return;
 
     const start = ctx.currentTime + (options.delayMs ?? 0) / 1000;
     const seconds = options.durationMs / 1000;
@@ -172,15 +327,15 @@ export class AudioBus {
     envelope.gain.exponentialRampToValueAtTime(0.0001, start + seconds);
 
     osc.connect(envelope);
-    envelope.connect(master);
+    envelope.connect(out);
     osc.start(start);
     osc.stop(start + seconds + 0.03);
   }
 
   #noise(options: NoiseOptions): void {
     const ctx = this.#ctx;
-    const master = this.#master;
-    if (ctx === null || master === null) return;
+    const out = this.#sfxGain;
+    if (ctx === null || out === null) return;
 
     const start = ctx.currentTime + (options.delayMs ?? 0) / 1000;
     const seconds = options.durationMs / 1000;
@@ -205,7 +360,7 @@ export class AudioBus {
 
     source.connect(filter);
     filter.connect(envelope);
-    envelope.connect(master);
+    envelope.connect(out);
     source.start(start);
     source.stop(start + seconds + 0.03);
   }
@@ -221,4 +376,9 @@ export class AudioBus {
     this.#noiseBuffer = buffer;
     return buffer;
   }
+}
+
+function clamp01(value: number): number {
+  if (Number.isNaN(value)) return 0;
+  return Math.min(1, Math.max(0, value));
 }
