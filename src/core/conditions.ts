@@ -1,0 +1,67 @@
+import type { CardDef, CardRule, Condition } from './cards.ts';
+
+export interface Combatant {
+  hp: number;
+  /**
+   * null when a combatant had nothing legal to play. Reachable once enough
+   * Stun effects stack, so conditions must tolerate an absent opposing card
+   * rather than assume one.
+   */
+  card: CardDef | null;
+}
+
+/**
+ * The snapshot a Clash is judged against. Taken once, before any effect
+ * applies, so both cards see identical state and neither is advantaged by
+ * resolution order.
+ */
+export interface ClashSnapshot {
+  round: number;
+  self: Combatant;
+  opponent: Combatant;
+}
+
+export function evaluate(condition: Condition, snapshot: ClashSnapshot): boolean {
+  const opposing = snapshot.opponent.card;
+
+  switch (condition.kind) {
+    case 'always':
+      return true;
+
+    case 'opponentType':
+      return opposing !== null && condition.types.includes(opposing.type);
+
+    case 'opponentTag':
+      return opposing !== null && condition.tags.some((tag) => opposing.tags.includes(tag));
+
+    case 'opponentCategory':
+      return opposing !== null && opposing.category === condition.category;
+
+    case 'mirror':
+      return (
+        opposing !== null &&
+        snapshot.self.card !== null &&
+        snapshot.self.card.type === opposing.type
+      );
+
+    case 'selfHpAtOrBelow':
+      return snapshot.self.hp <= condition.hp;
+
+    case 'opponentHpAtOrBelow':
+      return snapshot.opponent.hp <= condition.hp;
+
+    case 'roundAtLeast':
+      return snapshot.round >= condition.round;
+
+    case 'all':
+      return condition.of.every((inner) => evaluate(inner, snapshot));
+
+    case 'any':
+      return condition.of.some((inner) => evaluate(inner, snapshot));
+  }
+}
+
+/** The rules of `card` whose conditions match. Empty means a Whiff. */
+export function firingRules(card: CardDef, snapshot: ClashSnapshot): readonly CardRule[] {
+  return card.rules.filter((rule) => evaluate(rule.when, snapshot));
+}
