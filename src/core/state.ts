@@ -28,7 +28,10 @@ export type Cooldowns = Readonly<Record<CardType, number>>;
 export interface PlayerState {
   readonly id: PlayerId;
   readonly hp: number;
-  /** Trick ids only. Cores are never in Hand. */
+  /**
+   * The Trick ids held. Cores complete the Hand the player sees but are
+   * permanent, so they are tracked by Cooldown rather than listed here.
+   */
   readonly hand: readonly string[];
   /** Rounds remaining per Core type; 0 means ready. */
   readonly cooldowns: Cooldowns;

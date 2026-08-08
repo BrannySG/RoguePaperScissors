@@ -9,7 +9,12 @@ export interface FightSummary {
   rounds: number;
   outcome: Outcome;
   cardsPlayed: number;
-  whiffs: number;
+  clashes: number;
+  /** Clashes the triangle named a Winner in. */
+  decided: number;
+  stalemates: number;
+  /** Clashes won on Type by a card whose Condition did not match. */
+  noEffects: number;
   damage: number;
   tricksDrafted: number;
   reachedSuddenDeath: boolean;
@@ -41,7 +46,10 @@ export function simulateFight(
 
   const summary = {
     cardsPlayed: 0,
-    whiffs: 0,
+    clashes: 0,
+    decided: 0,
+    stalemates: 0,
+    noEffects: 0,
     damage: 0,
     tricksDrafted: 0,
     reachedSuddenDeath: false,
@@ -51,8 +59,11 @@ export function simulateFight(
     for (const event of events) {
       if (event.kind === 'clashRevealed') {
         summary.cardsPlayed += event.cards.filter((id) => id !== '').length;
-      } else if (event.kind === 'whiffed') {
-        summary.whiffs += 1;
+        summary.clashes += 1;
+        if (event.winner !== null) summary.decided += 1;
+        if (event.stalemate) summary.stalemates += 1;
+      } else if (event.kind === 'noEffect') {
+        summary.noEffects += 1;
       } else if (event.kind === 'damaged') {
         summary.damage += event.amount;
       } else if (event.kind === 'draftResolved' && event.cardId !== null) {
@@ -108,7 +119,10 @@ export interface BatchStats {
   meanRounds: number;
   medianRounds: number;
   p90Rounds: number;
-  whiffRate: number;
+  /** Share of Clashes that ended in a Stalemate. */
+  stalemateRate: number;
+  /** Share of decided Clashes where winning the Type bought nothing. */
+  noEffectRate: number;
   suddenDeathRate: number;
   meanDamagePerRound: number;
   meanTricksDrafted: number;
@@ -147,7 +161,8 @@ export function runBatch(
     meanRounds: total('rounds') / fights,
     medianRounds: at(0.5),
     p90Rounds: at(0.9),
-    whiffRate: total('whiffs') / Math.max(1, total('cardsPlayed')),
+    stalemateRate: total('stalemates') / Math.max(1, total('clashes')),
+    noEffectRate: total('noEffects') / Math.max(1, total('decided')),
     suddenDeathRate: results.filter((r) => r.reachedSuddenDeath).length / fights,
     meanDamagePerRound: total('damage') / Math.max(1, total('rounds')),
     meanTricksDrafted: total('tricksDrafted') / fights,

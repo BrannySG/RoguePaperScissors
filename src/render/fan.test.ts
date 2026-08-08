@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { CORE_IDS } from '../cards/library.ts';
+import { DEFAULT_RULESET } from '../core/ruleset.ts';
 import { fanLayout, type FanOptions } from './fan.ts';
 import {
   HOVER_LIFT,
@@ -9,6 +11,17 @@ import {
 } from './layout.ts';
 import { CARD, CARD_SMALL } from './theme.ts';
 import { VIRTUAL_HEIGHT, VIRTUAL_WIDTH } from './viewport.ts';
+
+/** Distance between the centres of neighbouring cards, at their tightest. */
+function closestGap(fan: FanOptions, count: number): number {
+  const slots = fanLayout(count, fan);
+
+  return slots.slice(1).reduce((tightest, slot, index) => {
+    const previous = slots[index]!;
+    const gap = Math.hypot(slot.x - previous.x, slot.y - previous.y);
+    return Math.min(tightest, gap);
+  }, Infinity);
+}
 
 interface Box {
   left: number;
@@ -92,6 +105,19 @@ describe('fan geometry', () => {
 
   it('returns nothing for an empty Hand', () => {
     expect(fanLayout(0, PLAYER_FAN)).toEqual([]);
+  });
+
+  it('sizes the fan to a full Hand of Cores plus Tricks', () => {
+    expect(MAX_FAN_CARDS).toBe(CORE_IDS.length + DEFAULT_RULESET.handCap);
+  });
+
+  it('leaves every card in a full Hand readable on its own', () => {
+    // Cards overlap by design, but a card covered past its name and text cannot
+    // be chosen under a countdown. Roughly three quarters has to stay visible.
+    expect(closestGap(PLAYER_FAN, MAX_FAN_CARDS)).toBeGreaterThan(CARD.width * 0.75);
+    expect(closestGap(OPPONENT_FAN, MAX_FAN_CARDS)).toBeGreaterThan(
+      CARD_SMALL.width * 0.75,
+    );
   });
 });
 

@@ -1,4 +1,5 @@
 import { Container, type Application } from 'pixi.js';
+import { AudioBus } from '../audio/bus.ts';
 import { attachBot, DEFAULT_BOT_OPTIONS } from '../bot/driver.ts';
 import { randomPolicy, type BotPolicy } from '../bot/policy.ts';
 import { createLibrary } from '../cards/library.ts';
@@ -25,6 +26,7 @@ export class Game {
   #app: Application;
   #root: Container;
   #layer = new Container();
+  #audio = new AudioBus();
 
   #referee!: LocalReferee;
   #scene!: Scene;
@@ -43,6 +45,9 @@ export class Game {
 
     this.#app.ticker.add(this.#tick);
     window.addEventListener('keydown', this.#onKeyDown);
+    // Browsers will not start an AudioContext before a gesture, so the bus stays
+    // silent until the player touches something.
+    window.addEventListener('pointerdown', this.#onGesture);
   }
 
   get record(): MatchRecord {
@@ -60,7 +65,7 @@ export class Game {
     const library = createLibrary(options.ruleSet);
     this.#referee = new LocalReferee(options.seed, options.ruleSet);
 
-    this.#scene = new Scene(this.#layer, library, {
+    this.#scene = new Scene(this.#layer, library, this.#audio, {
       onCommit: (cardId) => this.#referee.commit(HUMAN, cardId),
       onDraft: (cardId, discard) => this.#referee.draft(HUMAN, cardId, discard),
       onClashComplete: () => this.#referee.advance(),
@@ -87,6 +92,7 @@ export class Game {
   destroy(): void {
     this.#app.ticker.remove(this.#tick);
     window.removeEventListener('keydown', this.#onKeyDown);
+    window.removeEventListener('pointerdown', this.#onGesture);
     this.#teardown();
   }
 
@@ -100,6 +106,10 @@ export class Game {
     for (const child of this.#layer.removeChildren()) child.destroy({ children: true });
   }
 
+  #onGesture = (): void => {
+    this.#audio.unlock();
+  };
+
   #onKeyDown = (event: KeyboardEvent): void => {
     if (!this.#running) return;
 
@@ -107,11 +117,14 @@ export class Game {
     const target = event.target;
     if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return;
 
+    this.#audio.unlock();
+
     if (event.key >= '1' && event.key <= '9') {
       this.#scene.pickByNumber(Number(event.key));
       return;
     }
     if (event.key.toLowerCase() === 'r') this.restart();
+    if (event.key.toLowerCase() === 'm') this.#audio.muted = !this.#audio.muted;
   };
 
   #tick = (): void => {

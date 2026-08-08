@@ -1,13 +1,7 @@
-import type { CardDef, CardType } from '../core/cards.ts';
+import { CARD_TYPES, type CardDef, type CardType } from '../core/cards.ts';
 import type { RuleSet } from '../core/ruleset.ts';
 
-const TRIANGLE: ReadonlyArray<{ type: CardType; counters: CardType; name: string }> = [
-  { type: 'rock', counters: 'scissors', name: 'Rock' },
-  { type: 'paper', counters: 'rock', name: 'Paper' },
-  { type: 'scissors', counters: 'paper', name: 'Scissors' },
-];
-
-const LABEL: Record<CardType, string> = {
+const NAME: Record<CardType, string> = {
   rock: 'Rock',
   paper: 'Paper',
   scissors: 'Scissors',
@@ -17,18 +11,21 @@ const LABEL: Record<CardType, string> = {
  * Cores are generated rather than authored so that `coreDamage` is a genuine
  * RuleSet lever. Their ids are their Types, since each combatant owns exactly
  * one Core of each Type.
+ *
+ * Their rules are unconditional: the triangle has already decided a Core only
+ * resolves when it Countered the other card. See docs/adr/0004.
  */
 export function buildCores(ruleSet: RuleSet): CardDef[] {
-  return TRIANGLE.map(({ type, counters, name }) => ({
+  return CARD_TYPES.map((type) => ({
     id: type,
-    name,
+    name: NAME[type],
     category: 'core' as const,
     type,
     tags: [],
-    text: `Counters ${LABEL[counters]}. ${ruleSet.coreDamage} damage.`,
+    text: `${ruleSet.coreDamage} damage.`,
     rules: [
       {
-        when: { kind: 'opponentType' as const, types: [counters] },
+        when: { kind: 'always' as const },
         then: [{ kind: 'damage' as const, amount: ruleSet.coreDamage }],
       },
     ],

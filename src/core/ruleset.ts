@@ -16,11 +16,15 @@ export interface RuleSet {
   /**
    * Which combatant's played Core enters Cooldown. `both` is the shipped
    * design; the others exist to test whether cooldown should be a prize or a
-   * penalty. `winner`/`loser` compare damage dealt during the Clash.
+   * penalty. `winner`/`loser` follow the Clash Winner named by the triangle,
+   * and fall back to both on a Stalemate.
    */
   cooldownAppliesTo: 'both' | 'winner' | 'loser' | 'none';
 
-  /** Maximum Tricks held. Overflow from card effects fizzles. */
+  /**
+   * Room for Tricks alongside the three Cores, so a Hand of five means two.
+   * Overflow from card effects fizzles.
+   */
   handCap: number;
 
   draftOptions: number;
@@ -48,7 +52,7 @@ export const DEFAULT_RULESET: RuleSet = {
   cooldownRounds: 1,
   cooldownAppliesTo: 'both',
 
-  handCap: 5,
+  handCap: 2,
 
   draftOptions: 3,
   draftBonusWhenBehind: 1,

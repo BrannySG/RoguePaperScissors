@@ -9,6 +9,11 @@ const trick = (card: Omit<CardDef, 'category' | 'priority'>): CardDef => ({
 /**
  * The starter pool. `draftWeight: 0` means a card is never offered directly and
  * can only enter a Hand through another card's effect.
+ *
+ * A card only ever resolves as the Winner of its Clash, so its Type already
+ * says which Type it pays off against and its rules say what it does. Only a
+ * genuinely extra Condition — an HP threshold, a Tag — is worth writing out.
+ * See docs/adr/0004.
  */
 export const TRICKS: readonly CardDef[] = [
   trick({
@@ -16,11 +21,11 @@ export const TRICKS: readonly CardDef[] = [
     name: 'Fish',
     type: 'rock',
     tags: ['Beast'],
-    text: 'vs Rock: 4 damage. Add 2 Fish Guts.',
+    text: '4 damage. Add 2 Fish Guts.',
     draftWeight: 10,
     rules: [
       {
-        when: { kind: 'opponentType', types: ['rock'] },
+        when: { kind: 'always' },
         then: [
           { kind: 'damage', amount: 4 },
           { kind: 'addCard', cardId: 'fish_guts', count: 2, to: 'self' },
@@ -34,11 +39,11 @@ export const TRICKS: readonly CardDef[] = [
     name: 'Fish Guts',
     type: 'paper',
     tags: ['Beast'],
-    text: 'vs Paper or Scissors: 4 damage. Heal 2.',
+    text: '4 damage. Heal 2.',
     draftWeight: 0,
     rules: [
       {
-        when: { kind: 'opponentType', types: ['paper', 'scissors'] },
+        when: { kind: 'always' },
         then: [
           { kind: 'damage', amount: 4 },
           { kind: 'heal', amount: 2 },
@@ -52,29 +57,9 @@ export const TRICKS: readonly CardDef[] = [
     name: 'Boulder',
     type: 'rock',
     tags: [],
-    text: 'vs Scissors: 7 damage.',
+    text: '7 damage.',
     draftWeight: 10,
-    rules: [
-      {
-        when: { kind: 'opponentType', types: ['scissors'] },
-        then: [{ kind: 'damage', amount: 7 }],
-      },
-    ],
-  }),
-
-  trick({
-    id: 'sucker_punch',
-    name: 'Sucker Punch',
-    type: 'paper',
-    tags: [],
-    text: 'vs any Trick: 6 damage.',
-    draftWeight: 8,
-    rules: [
-      {
-        when: { kind: 'opponentCategory', category: 'trick' },
-        then: [{ kind: 'damage', amount: 6 }],
-      },
-    ],
+    rules: [{ when: { kind: 'always' }, then: [{ kind: 'damage', amount: 7 }] }],
   }),
 
   trick({
@@ -153,11 +138,11 @@ export const TRICKS: readonly CardDef[] = [
     name: 'Pickpocket',
     type: 'scissors',
     tags: [],
-    text: 'vs Rock: 3 damage. Opponent discards a Trick.',
+    text: '3 damage. Opponent discards a Trick.',
     draftWeight: 8,
     rules: [
       {
-        when: { kind: 'opponentType', types: ['rock'] },
+        when: { kind: 'always' },
         then: [
           { kind: 'damage', amount: 3 },
           { kind: 'discard', count: 1, from: 'opponent' },

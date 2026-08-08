@@ -60,7 +60,8 @@ function report(label: string, stats: BatchStats, ruleSet: RuleSet): void {
     `  rounds            mean ${stats.meanRounds.toFixed(2)}  ` +
       `median ${stats.medianRounds}  p90 ${stats.p90Rounds}`,
   );
-  console.log(`  whiff rate        ${pct(stats.whiffRate)}`);
+  console.log(`  stalemate rate    ${pct(stats.stalemateRate)}`);
+  console.log(`  no-effect rate    ${pct(stats.noEffectRate)}`);
   console.log(`  reached sudden    ${pct(stats.suddenDeathRate)}`);
   console.log(`  damage per round  ${stats.meanDamagePerRound.toFixed(2)}`);
   console.log(`  tricks drafted    ${stats.meanTricksDrafted.toFixed(2)}`);

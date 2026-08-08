@@ -57,6 +57,9 @@ const damageTo = (events: GameEvent[], target: PlayerId): number =>
     0,
   );
 
+const revealOf = (events: GameEvent[]): GameEvent | undefined =>
+  events.find((e) => e.kind === 'clashRevealed');
+
 describe('card library', () => {
   it('has no dangling card references', () => {
     expect(validateLibrary(createLibrary(makeRuleSet()))).toEqual([]);
@@ -64,23 +67,63 @@ describe('card library', () => {
 });
 
 describe('the triangle', () => {
-  it('Paper counters Rock for coreDamage, and Rock whiffs back', () => {
+  it('names the Countering card the Winner and lets only it deal damage', () => {
     const { engine, state } = setup();
     const result = round(state, engine, 'rock', 'paper');
 
+    expect(revealOf(result.events)).toMatchObject({ winner: 1, stalemate: false });
     expect(damageTo(result.events, 0)).toBe(3);
     expect(damageTo(result.events, 1)).toBe(0);
     expect(result.state.players[0].hp).toBe(17);
     expect(result.state.players[1].hp).toBe(20);
   });
 
-  it('treats a mirror as a mutual Whiff dealing nothing', () => {
+  it('calls matching Types a Stalemate and fires neither card', () => {
     const { engine, state } = setup();
     const result = round(state, engine, 'rock', 'rock');
 
-    expect(result.events.filter((e) => e.kind === 'whiffed')).toHaveLength(2);
+    expect(revealOf(result.events)).toMatchObject({ winner: null, stalemate: true });
+    expect(result.events.some((e) => e.kind === 'noEffect')).toBe(false);
     expect(result.state.players[0].hp).toBe(20);
     expect(result.state.players[1].hp).toBe(20);
+  });
+
+  it('spends a losing Trick without firing any of its rules', () => {
+    const { engine, state } = setup();
+    const armed = give(state, 0, 'boulder');
+
+    // Boulder is Rock, so committing it into Paper loses the Type matchup.
+    const result = round(armed, engine, 'boulder', 'paper');
+
+    expect(result.state.players[0].hand).toEqual([]);
+    expect(result.events.some((e) => e.kind === 'trickSpent')).toBe(true);
+    expect(damageTo(result.events, 1)).toBe(0);
+  });
+
+  it('reports No Effect when the Winner Condition does not match', () => {
+    const { engine, state } = setup();
+    const armed = give(state, 0, 'last_stand');
+
+    // Last Stand is Scissors and beats Paper, but only pays off at low HP.
+    const result = round(armed, engine, 'last_stand', 'paper');
+
+    expect(result.events.some((e) => e.kind === 'noEffect')).toBe(true);
+    expect(damageTo(result.events, 1)).toBe(0);
+  });
+
+  it('lets an unopposed card land when the opponent cannot commit', () => {
+    const { engine, state } = setup();
+    const stunned = updatePlayer(state, 1, {
+      cooldowns: { rock: 2, paper: 2, scissors: 2 },
+    });
+
+    const result = run(stunned, engine, [
+      { kind: 'commit', player: 0, cardId: 'rock' },
+      { kind: 'timeout' },
+    ]);
+
+    expect(revealOf(result.events)).toMatchObject({ winner: 0, stalemate: false });
+    expect(damageTo(result.events, 1)).toBe(3);
   });
 
   it('scales with the RuleSet rather than hardcoded damage', () => {
@@ -142,7 +185,7 @@ describe('hand', () => {
     const { engine, state } = setup();
     const armed = give(state, 0, 'fish');
 
-    const result = round(armed, engine, 'fish', 'rock');
+    const result = round(armed, engine, 'fish', 'scissors');
 
     expect(result.state.players[0].hand).toEqual(['fish_guts', 'fish_guts']);
     expect(damageTo(result.events, 1)).toBe(4);
@@ -152,7 +195,7 @@ describe('hand', () => {
     const { engine, state } = setup({ handCap: 3 });
     const armed = give(state, 0, 'fish', 'boulder', 'boulder');
 
-    const result = round(armed, engine, 'fish', 'rock');
+    const result = round(armed, engine, 'fish', 'scissors');
 
     // Fish frees its own slot first, so exactly one of the two Guts lands.
     expect(result.state.players[0].hand).toHaveLength(3);
@@ -169,7 +212,7 @@ describe('hand', () => {
   });
 
   it('requires a named discard to draft into a full Hand', () => {
-    const { engine, state } = setup({ handCap: 2 });
+    const { engine, state } = setup();
     const armed = give(state, 0, 'boulder', 'rust');
 
     const clash = run(armed, engine, [
@@ -194,12 +237,16 @@ describe('echoes', () => {
     const { engine, state } = setup();
     const armed = give(state, 0, 'beast_pact', 'fish');
 
+    // Both Tricks are Rock, so both need the opponent on Scissors to land. The
+    // Stalemate Round between them is what brings their Scissors off Cooldown.
     const first = round(armed, engine, 'beast_pact', 'scissors');
     expect(first.events.some((e) => e.kind === 'echoInstalled')).toBe(true);
     expect(first.events.some((e) => e.kind === 'echoRevealed')).toBe(false);
     expect(first.state.players[0].echoes[0]!.revealed).toBe(false);
 
-    const second = round(first.state, engine, 'fish', 'rock');
+    const idle = round(first.state, engine, 'rock', 'rock');
+
+    const second = round(idle.state, engine, 'fish', 'scissors');
     expect(damageTo(second.events, 1)).toBe(6);
     expect(second.events.some((e) => e.kind === 'echoRevealed')).toBe(true);
     expect(second.state.players[0].echoes[0]!.revealed).toBe(true);
@@ -209,22 +256,28 @@ describe('echoes', () => {
     const { engine, state } = setup();
     const armed = give(state, 0, 'thick_skin');
 
-    const first = round(armed, engine, 'thick_skin', 'paper');
-    expect(damageTo(first.events, 0)).toBe(3);
+    // Thick Skin is Rock, so it has to be committed into Scissors to install.
+    const first = round(armed, engine, 'thick_skin', 'scissors');
+    expect(first.events.some((e) => e.kind === 'echoInstalled')).toBe(true);
 
-    const second = round(first.state, engine, 'paper', 'scissors');
-    expect(damageTo(second.events, 0)).toBe(2);
+    const idle = round(first.state, engine, 'rock', 'rock');
+
+    const fromScissors = round(idle.state, engine, 'paper', 'scissors');
+    expect(damageTo(fromScissors.events, 0)).toBe(2);
+
+    const fromPaper = round(fromScissors.state, engine, 'rock', 'paper');
+    expect(damageTo(fromPaper.events, 0)).toBe(3);
   });
 
   it('widens the draft offer via Market Day', () => {
     const { engine, state } = setup();
     const armed = give(state, 0, 'market_day');
 
-    // Scissors into a Scissors-type Trick whiffs both ways, so neither
-    // combatant falls behind and only the Echo widens the offer.
+    // Market Day is Scissors and deals nothing, so beating Paper installs the
+    // Echo without either combatant falling behind on HP.
     const result = run(armed, engine, [
       { kind: 'commit', player: 0, cardId: 'market_day' },
-      { kind: 'commit', player: 1, cardId: 'scissors' },
+      { kind: 'commit', player: 1, cardId: 'paper' },
       { kind: 'advance' },
     ]);
 
@@ -332,8 +385,10 @@ describe('determinism', () => {
     const plain = setup();
     const withDiscard = setup();
 
+    // Player 0's offer is read because only their Clash differs between the two
+    // runs: a Winner's discard roll must not shift what either side is offered.
     const offersFrom = (result: { state: GameState }): readonly string[] =>
-      result.state.players[1].draftOffer!;
+      result.state.players[0].draftOffer!;
 
     const a = run(plain.state, plain.engine, [
       { kind: 'commit', player: 0, cardId: 'rock' },
@@ -345,7 +400,7 @@ describe('determinism', () => {
     const armed = give(give(withDiscard.state, 0, 'pickpocket'), 1, 'boulder');
     const b = run(armed, withDiscard.engine, [
       { kind: 'commit', player: 0, cardId: 'pickpocket' },
-      { kind: 'commit', player: 1, cardId: 'rock' },
+      { kind: 'commit', player: 1, cardId: 'paper' },
       { kind: 'advance' },
     ]);
 

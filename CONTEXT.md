@@ -1,6 +1,6 @@
 # Rogue Paper Scissors
 
-A duelling card game descended from Rock Paper Scissors. Two combatants secretly commit one card per Round under a countdown, the cards resolve against each other, and the loser of the exchange drafts new cards to fight back with.
+A duelling card game descended from Rock Paper Scissors. Two combatants secretly commit one card per Round under a countdown, the cards resolve against each other, and both are then offered new cards to fight back with.
 
 ## Language
 
@@ -26,9 +26,25 @@ _Avoid_: play, select, submit
 The moment two committed cards resolve against each other.
 _Avoid_: combat, battle, resolution phase
 
-**Whiff**:
-A Clash in which a card's conditions do not match, so it does nothing. A legal and common outcome, not an error.
-_Avoid_: miss, tie, draw
+**Winner**:
+The committed card whose Type Counters the other's. The only card in a Clash allowed to fire its rules.
+_Avoid_: attacker, aggressor
+
+**Loser**:
+The committed card whose Type is Countered. Spent all the same, and its rules never fire.
+_Avoid_: victim, defender
+
+**Stalemate**:
+A Clash between two cards of the same Type. There is no Winner, neither card's rules fire, and both are still spent.
+_Avoid_: tie, draw, mirror
+
+**No Effect**:
+A Clash won on Type by a card whose Condition did not match, so winning bought nothing. A legal and common outcome, not an error.
+_Avoid_: whiff, miss, fizzle
+
+**Condition**:
+What a card asks about the Clash before its rules fire. Only ever checked on the Winner.
+_Avoid_: trigger, requirement, prerequisite
 
 **Draft**:
 The offer of new Tricks made to each combatant between Clashes.
@@ -45,11 +61,11 @@ One of the three permanent cards every combatant owns — Rock, Paper, Scissors.
 _Avoid_: basic, starter, base card
 
 **Trick**:
-A drafted card. Consumed on play and gone.
+A drafted card. Spent at the Clash whether or not it did anything, and gone.
 _Avoid_: spell, item, ability, action
 
 **Hand**:
-The Tricks a combatant is currently holding. Cores are never in Hand.
+Every card a combatant holds: their three Cores, plus room for two Tricks alongside them.
 _Avoid_: deck — there is no deck, nothing is drawn or shuffled into play
 
 **Type**:
@@ -61,8 +77,8 @@ A freeform label a card may carry any number of, such as Beast or Metal. Carries
 _Avoid_: keyword, trait, subtype
 
 **Counters**:
-What a card does to a Type or Tag when its condition matches. A property printed on an individual card, never a rule of the game.
-_Avoid_: beats — it implies a global relation the engine deliberately does not have
+The relation the triangle is made of: Rock Counters Scissors, Paper Counters Rock, Scissors Counters Paper. It decides the Winner of a Clash and nothing else.
+_Avoid_: trumps, wins against
 
 **Cooldown**:
 The lockout a Core enters after being played, during which its owner cannot play it. Always public to both combatants.

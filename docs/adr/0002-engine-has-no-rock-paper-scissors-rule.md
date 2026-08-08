@@ -1,4 +1,10 @@
+---
+status: superseded by ADR-0004
+---
+
 # The engine has no Rock-Paper-Scissors rule
+
+**Superseded by [ADR 0004](./0004-type-triangle-picks-the-clash-winner.md).** The engine does now own the triangle, and it decides which card in a Clash may fire its rules. Everything below is kept for the reasoning, not the rule.
 
 There is no `beats` table anywhere in this codebase, and searching for one is how most readers will start. Paper counters Rock solely because Paper's card data says `{ when: { opponentType: ['rock'] }, then: [{ damage: 3 }] }`. The engine knows only how to evaluate a condition against the opposing card and apply a list of effects; the famous triangle is an emergent property of three cards that happen to be written in a cycle.
 

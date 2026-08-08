@@ -1,11 +1,12 @@
 import { Container } from 'pixi.js';
+import type { AudioBus, SoundCue } from '../audio/bus.ts';
 import { cardById, CORE_IDS } from '../cards/library.ts';
 import type { CardLibrary } from '../core/cards.ts';
 import type { GameEvent } from '../core/events.ts';
 import type { PlayerId } from '../core/state.ts';
 import type { FightView } from '../core/view.ts';
 import { Banner } from './banner.ts';
-import { ClashView, type ClashSide } from './clash.ts';
+import { ClashView, type ClashBeat, type ClashScript, type ClashSide } from './clash.ts';
 import { Countdown } from './countdown.ts';
 import { DraftView } from './draft.ts';
 import { HandView, type HandEntry } from './hand.ts';
@@ -21,8 +22,8 @@ import {
 } from './layout.ts';
 import { BLOOD, CARD, CARD_SMALL, ECHO, INK, MUTED } from './theme.ts';
 
-/** How long the reveal holds before the Draft opens. */
-export const CLASH_HOLD_MS = 2300;
+/** HP drains at a readable speed rather than snapping, in HP per second. */
+const HP_DRAIN_RATE = 14;
 
 export interface SceneHandlers {
   onCommit: (cardId: string) => void;
@@ -31,33 +32,61 @@ export interface SceneHandlers {
 }
 
 interface ClashTally {
-  dealt: [number, number];
-  healed: [number, number];
-  whiffed: [boolean, boolean];
   cards: readonly [string, string];
+  winner: PlayerId | null;
+  stalemate: boolean;
+  taken: [number, number];
+  healed: [number, number];
+  noEffect: [boolean, boolean];
+  suddenDeath: boolean;
+}
+
+interface PendingBanner {
+  text: string;
+  color: number;
+  durationMs: number;
+  cue: SoundCue | null;
 }
 
 export class Scene {
   #library: CardLibrary;
   #handlers: SceneHandlers;
+  #audio: AudioBus;
 
   #playerHand: HandView;
   #opponentHand: HandView;
   #playerPlate = new CombatantPlate('Branny', 'left', 'up');
   #opponentPlate = new CombatantPlate('Opponent', 'right', 'down');
   #countdown = new Countdown();
-  #clash = new ClashView();
+  #clash: ClashView;
   #banner = new Banner();
   #draft: DraftView;
 
   #view: FightView | null = null;
-  #clashRemainingMs = 0;
   #pendingClash: ClashTally | null = null;
+  #playing: ClashTally | null = null;
+  #pendingBanners: PendingBanner[] = [];
   #draftShownFor = -1;
+  #lastTick: number | null = null;
 
-  constructor(root: Container, library: CardLibrary, handlers: SceneHandlers) {
+  /**
+   * The reducer applies a whole Clash the instant both combatants commit, so
+   * the plates would otherwise show the new HP while the cards are still
+   * squaring up. They hold the pre-Clash figures until the blow lands.
+   */
+  #hpShown: [number, number] | null = null;
+  #hpTarget: [number, number] = [0, 0];
+  #hpHeld = false;
+
+  constructor(
+    root: Container,
+    library: CardLibrary,
+    audio: AudioBus,
+    handlers: SceneHandlers,
+  ) {
     this.#library = library;
     this.#handlers = handlers;
+    this.#audio = audio;
 
     this.#opponentHand = new HandView({
       size: CARD_SMALL,
@@ -70,7 +99,10 @@ export class Scene {
       interactive: true,
       fan: PLAYER_FAN,
       onPick: (index) => this.#pick(index),
+      onHover: () => this.#audio.play('hover'),
     });
+
+    this.#clash = new ClashView((beat) => this.#onClashBeat(beat));
 
     this.#playerPlate.position.set(PLAYER_PLATE.x, PLAYER_PLATE.y);
     this.#opponentPlate.position.set(OPPONENT_PLATE.x, OPPONENT_PLATE.y);
@@ -98,10 +130,13 @@ export class Scene {
   render(view: FightView): void {
     this.#view = view;
 
+    this.#hpTarget = [view.self.hp, view.opponent.hp];
+    if (this.#hpShown === null) this.#hpShown = [...this.#hpTarget];
+
     const suddenDeath = view.round >= view.suddenDeathRound;
 
     this.#playerPlate.update({
-      hp: view.self.hp,
+      hp: Math.round(this.#hpShown[0]),
       maxHp: view.startingHp,
       handCount: view.self.hand.length,
       handCap: view.handCap,
@@ -110,7 +145,7 @@ export class Scene {
     });
 
     this.#opponentPlate.update({
-      hp: view.opponent.hp,
+      hp: Math.round(this.#hpShown[1]),
       maxHp: view.startingHp,
       handCount: view.opponent.handCount,
       handCap: view.handCap,
@@ -200,16 +235,25 @@ export class Scene {
       switch (event.kind) {
         case 'clashRevealed':
           this.#pendingClash = {
-            dealt: [0, 0],
-            healed: [0, 0],
-            whiffed: [false, false],
             cards: event.cards,
+            winner: event.winner,
+            stalemate: event.stalemate,
+            taken: [0, 0],
+            healed: [0, 0],
+            noEffect: [false, false],
+            suddenDeath: false,
           };
           break;
 
+        case 'committed':
+          // An auto-commit is the countdown acting, not the player, so it does
+          // not get the lock-in thunk.
+          if (event.player === 0 && !event.auto) this.#audio.play('commit');
+          break;
+
         case 'damaged':
-          if (this.#pendingClash !== null && event.source !== event.target) {
-            this.#pendingClash.dealt[event.source] += event.amount;
+          if (this.#pendingClash !== null) {
+            this.#pendingClash.taken[event.target] += event.amount;
           }
           break;
 
@@ -219,20 +263,23 @@ export class Scene {
           }
           break;
 
-        case 'whiffed':
-          if (this.#pendingClash !== null) this.#pendingClash.whiffed[event.player] = true;
+        case 'noEffect':
+          if (this.#pendingClash !== null) this.#pendingClash.noEffect[event.player] = true;
           break;
 
         case 'echoRevealed':
-          this.#banner.show(event.label.toUpperCase(), ECHO, 1800);
+          this.#announce(event.label.toUpperCase(), ECHO, 1800, null);
           break;
 
         case 'suddenDeath':
-          this.#banner.show(`SUDDEN DEATH  -${event.amount}`, BLOOD, 1400);
+          // Cued with the rest of the Clash damage rather than on its own, so
+          // the two never land on the same frame as separate noises.
+          if (this.#pendingClash !== null) this.#pendingClash.suddenDeath = true;
+          this.#announce(`SUDDEN DEATH  -${event.amount}`, BLOOD, 1400, null);
           break;
 
         case 'fightEnded':
-          this.#banner.show(
+          this.#announce(
             event.outcome.kind === 'draw'
               ? 'DRAW'
               : event.outcome.player === 0
@@ -240,6 +287,9 @@ export class Scene {
                 : 'YOU LOSE',
             event.outcome.kind === 'draw' ? MUTED : INK,
             6000,
+            event.outcome.kind === 'winner' && event.outcome.player === 0
+              ? 'fightWon'
+              : 'fightLost',
           );
           break;
 
@@ -248,35 +298,96 @@ export class Scene {
       }
     }
 
-    if (this.#pendingClash !== null) this.#showClash(this.#pendingClash);
+    if (this.#pendingClash !== null) this.#startClash(this.#pendingClash);
   }
 
-  #showClash(tally: ClashTally): void {
-    const side = (player: PlayerId): ClashSide => {
-      const cardId = tally.cards[player];
-      const card = cardId === '' ? null : cardById(this.#library, cardId);
+  /**
+   * Callouts that arrive mid-Clash wait for the report beat: announcing the
+   * Fight over while the cards are still mid-swing reads as a bug.
+   */
+  #announce(text: string, color: number, durationMs: number, cue: SoundCue | null): void {
+    if (this.#pendingClash !== null || this.#clash.playing) {
+      this.#pendingBanners.push({ text, color, durationMs, cue });
+      return;
+    }
 
-      if (tally.whiffed[player]) {
-        return { card, result: 'WHIFF', resultColor: MUTED };
-      }
+    this.#banner.show(text, color, durationMs);
+    if (cue !== null) this.#audio.play(cue);
+  }
 
-      const parts: string[] = [];
-      if (tally.dealt[player] > 0) parts.push(`${tally.dealt[player]} DMG`);
-      if (tally.healed[player] > 0) parts.push(`+${tally.healed[player]}`);
+  #startClash(tally: ClashTally): void {
+    this.#pendingClash = null;
+    this.#playing = tally;
+    this.#hpHeld = true;
 
-      return {
-        card,
-        result: parts.join('  ') || '-',
-        resultColor: tally.dealt[player] > 0 ? BLOOD : ECHO,
-      };
+    const script: ClashScript = {
+      sides: [this.#sideOf(tally, 0), this.#sideOf(tally, 1)],
+      winner: tally.winner,
+      stalemate: tally.stalemate,
     };
+    this.#clash.play(script);
 
-    this.#clash.show(side(0), side(1));
     // The reveal sits over the same ground the player's fan occupies, so the
     // hands step aside rather than showing through it.
     this.#setHandsVisible(false);
-    this.#clashRemainingMs = CLASH_HOLD_MS;
-    this.#pendingClash = null;
+  }
+
+  #sideOf(tally: ClashTally, player: PlayerId): ClashSide {
+    const cardId = tally.cards[player];
+    const card = cardId === '' ? null : cardById(this.#library, cardId);
+
+    const parts: string[] = [];
+    if (tally.taken[player] > 0) parts.push(`-${tally.taken[player]}`);
+    if (tally.healed[player] > 0) parts.push(`+${tally.healed[player]}`);
+
+    if (parts.length === 0) {
+      return tally.noEffect[player]
+        ? { card, float: 'NO EFFECT', floatColor: MUTED }
+        : { card, float: '', floatColor: MUTED };
+    }
+
+    return {
+      card,
+      float: parts.join('  '),
+      floatColor: tally.taken[player] > 0 ? BLOOD : ECHO,
+    };
+  }
+
+  #onClashBeat(beat: ClashBeat): void {
+    const tally = this.#playing;
+
+    switch (beat) {
+      case 'reveal':
+        this.#audio.play('reveal');
+        break;
+
+      case 'windup':
+        this.#audio.play('windup');
+        break;
+
+      case 'impact':
+        this.#audio.play(tally?.stalemate === true ? 'flop' : 'impact');
+        // The bars drain as the Loser goes down, so the hit has a consequence
+        // on screen before the numbers spell it out.
+        this.#hpHeld = false;
+        break;
+
+      case 'report': {
+        this.#hpHeld = false;
+        if (tally !== null) {
+          const hit = tally.taken[0] + tally.taken[1] > 0 || tally.suddenDeath;
+          const healed = tally.healed[0] + tally.healed[1] > 0;
+          if (hit) this.#audio.play('damage');
+          else if (healed) this.#audio.play('heal');
+        }
+        for (const pending of this.#pendingBanners) {
+          this.#banner.show(pending.text, pending.color, pending.durationMs);
+          if (pending.cue !== null) this.#audio.play(pending.cue);
+        }
+        this.#pendingBanners = [];
+        break;
+      }
+    }
   }
 
   #setHandsVisible(visible: boolean): void {
@@ -297,28 +408,49 @@ export class Scene {
     if (this.#draftShownFor === view.round) return;
     this.#draftShownFor = view.round;
     this.#draft.show(view.self.draftOffer!, view.self.hand, view.handCap);
+    this.#audio.play('draft');
   }
 
   setTimer(secondsRemaining: number | null, label: string): void {
-    const hidden = this.#clash.visible || this.#view?.phase === 'over';
+    const hidden = this.#clash.playing || this.#view?.phase === 'over';
+    const seconds =
+      secondsRemaining === null ? null : Math.max(0, Math.ceil(secondsRemaining));
+
+    if (!hidden && seconds !== null && seconds > 0 && seconds !== this.#lastTick) {
+      this.#audio.play(seconds <= 3 ? 'tickUrgent' : 'tick');
+    }
+    this.#lastTick = hidden ? null : seconds;
+
     this.#countdown.set(hidden ? null : secondsRemaining, label);
   }
 
   update(deltaMs: number): void {
     this.#banner.update(deltaMs);
+    this.#drainHp(deltaMs);
 
-    if (this.#clashRemainingMs > 0) {
-      this.#clashRemainingMs -= deltaMs;
-      if (this.#clashRemainingMs <= 0) {
-        this.#clashRemainingMs = 0;
-        this.#clash.hide();
-        this.#setHandsVisible(true);
-        this.#handlers.onClashComplete();
-      }
+    if (this.#clash.update(deltaMs)) {
+      this.#playing = null;
+      this.#setHandsVisible(true);
+      this.#handlers.onClashComplete();
+    }
+  }
+
+  #drainHp(deltaMs: number): void {
+    if (this.#hpShown === null || this.#hpHeld) return;
+
+    const step = (HP_DRAIN_RATE * deltaMs) / 1000;
+
+    for (const player of [0, 1] as const) {
+      const shown = this.#hpShown[player];
+      const target = this.#hpTarget[player];
+      const gap = target - shown;
+
+      this.#hpShown[player] =
+        Math.abs(gap) <= step ? target : shown + Math.sign(gap) * step;
     }
   }
 
   get clashPlaying(): boolean {
-    return this.#clashRemainingMs > 0;
+    return this.#clash.playing;
   }
 }

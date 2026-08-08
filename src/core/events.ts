@@ -8,8 +8,16 @@ import type { Outcome, PlayerId } from './state.ts';
 export type GameEvent =
   | { kind: 'fightStarted'; startingHp: number }
   | { kind: 'committed'; player: PlayerId; auto: boolean }
-  | { kind: 'clashRevealed'; round: number; cards: readonly [string, string] }
-  | { kind: 'whiffed'; player: PlayerId; cardId: string }
+  | {
+      kind: 'clashRevealed';
+      round: number;
+      cards: readonly [string, string];
+      /** Whose Type Countered the other's. null on a Stalemate or an empty Clash. */
+      winner: PlayerId | null;
+      stalemate: boolean;
+    }
+  /** The Winner's Condition did not match, so winning the Type bought nothing. */
+  | { kind: 'noEffect'; player: PlayerId; cardId: string }
   | {
       kind: 'damaged';
       source: PlayerId;

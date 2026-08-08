@@ -79,8 +79,8 @@ export class DraftView extends Container {
     this.#subheading.text = replacing
       ? `Taking ${cardById(this.#library, this.#pending!).name.toUpperCase()}`
       : full
-        ? `Hand is full (${this.#hand.length}/${this.#handCap}) - taking will replace`
-        : `Hand ${this.#hand.length}/${this.#handCap}`;
+        ? `No room for Tricks (${this.#hand.length}/${this.#handCap}) - taking will replace`
+        : `Tricks ${this.#hand.length}/${this.#handCap}`;
 
     this.#fill(this.#offerRow, this.#offer, CARD, 250, 470, (cardId) => {
       if (!full) {

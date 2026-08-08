@@ -11,16 +11,18 @@ export interface CardFilter {
 }
 
 /**
- * What a card may ask about the moment it is played. There is deliberately no
+ * What a card may ask about the Clash it just won. There is deliberately no
  * clause matching another card by id, and none that can see play history:
- * Types and Tags are the interface between cards. See docs/adr/0002.
+ * Types and Tags are the interface between cards.
+ *
+ * Only the Winner is ever asked, so a Condition on the opposing Type is already
+ * implied by the asking card's own Type — see docs/adr/0004.
  */
 export type Condition =
   | { kind: 'always' }
   | { kind: 'opponentType'; types: readonly CardType[] }
   | { kind: 'opponentTag'; tags: readonly string[] }
   | { kind: 'opponentCategory'; category: CardCategory }
-  | { kind: 'mirror' }
   | { kind: 'selfHpAtOrBelow'; hp: number }
   | { kind: 'opponentHpAtOrBelow'; hp: number }
   | { kind: 'roundAtLeast'; round: number }

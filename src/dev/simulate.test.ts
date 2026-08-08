@@ -20,11 +20,12 @@ describe('simulation harness', () => {
   });
 
   it('shows no seat advantage from resolution order', () => {
-    const stats = runBatch(1500, makeRuleSet());
+    // Only one card fires per Clash, so a Fight swings on fewer exchanges than
+    // it used to and a small batch is no longer enough to separate a real seat
+    // bias from noise.
+    const stats = runBatch(4000, makeRuleSet());
     const decisive = stats.wins[0] + stats.wins[1];
 
-    // Player 0's effects apply first during a Clash; this is the check that
-    // ordering never became an advantage.
     expect(Math.abs(stats.wins[0] - stats.wins[1]) / decisive).toBeLessThan(0.06);
   });
 

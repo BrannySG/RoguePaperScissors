@@ -12,8 +12,7 @@ export interface Combatant {
 
 /**
  * The snapshot a Clash is judged against. Taken once, before any effect
- * applies, so both cards see identical state and neither is advantaged by
- * resolution order.
+ * applies, so the Winner's Conditions read the state as it stood at the reveal.
  */
 export interface ClashSnapshot {
   round: number;
@@ -37,13 +36,6 @@ export function evaluate(condition: Condition, snapshot: ClashSnapshot): boolean
     case 'opponentCategory':
       return opposing !== null && opposing.category === condition.category;
 
-    case 'mirror':
-      return (
-        opposing !== null &&
-        snapshot.self.card !== null &&
-        snapshot.self.card.type === opposing.type
-      );
-
     case 'selfHpAtOrBelow':
       return snapshot.self.hp <= condition.hp;
 
@@ -61,7 +53,7 @@ export function evaluate(condition: Condition, snapshot: ClashSnapshot): boolean
   }
 }
 
-/** The rules of `card` whose conditions match. Empty means a Whiff. */
+/** The rules of `card` whose Conditions match. Empty means No Effect. */
 export function firingRules(card: CardDef, snapshot: ClashSnapshot): readonly CardRule[] {
   return card.rules.filter((rule) => evaluate(rule.when, snapshot));
 }

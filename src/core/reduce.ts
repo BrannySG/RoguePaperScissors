@@ -6,6 +6,7 @@ import { applyEffect, cooldownLengthFor, draftOptionsFor, setCooldown } from './
 import type { GameEvent, Reduction } from './events.ts';
 import { pick, seedStreams, weightedSample } from './rng.ts';
 import type { RuleSet } from './ruleset.ts';
+import { clashOutcome, type ClashOutcome } from './triangle.ts';
 import {
   other,
   READY_COOLDOWNS,
@@ -120,19 +121,8 @@ function consumeTrick(
   return updatePlayer(state, player, { hand });
 }
 
-function damageDealtBy(events: readonly GameEvent[], player: PlayerId): number {
-  return events.reduce((sum, event) => {
-    if (event.kind !== 'damaged') return sum;
-    if (event.source !== player || event.target === player) return sum;
-    return sum + event.amount;
-  }, 0);
-}
-
-/** Who the `winner`/`loser` cooldown variants refer to: whoever dealt more. */
-function coreCooldownTargets(
-  ruleSet: RuleSet,
-  clashEvents: readonly GameEvent[],
-): PlayerId[] {
+/** Who the `winner`/`loser` cooldown variants refer to. */
+function coreCooldownTargets(ruleSet: RuleSet, outcome: ClashOutcome): PlayerId[] {
   switch (ruleSet.cooldownAppliesTo) {
     case 'none':
       return [];
@@ -140,13 +130,10 @@ function coreCooldownTargets(
       return [0, 1];
     case 'winner':
     case 'loser': {
-      const dealt: [number, number] = [
-        damageDealtBy(clashEvents, 0),
-        damageDealtBy(clashEvents, 1),
-      ];
-      if (dealt[0] === dealt[1]) return [0, 1];
-      const leader: PlayerId = dealt[0] > dealt[1] ? 0 : 1;
-      return [ruleSet.cooldownAppliesTo === 'winner' ? leader : other(leader)];
+      // A Stalemate has no Winner to single out, so it falls back to both.
+      if (outcome.kind !== 'decided') return [0, 1];
+      const { winner } = outcome;
+      return [ruleSet.cooldownAppliesTo === 'winner' ? winner : other(winner)];
     }
   }
 }
@@ -161,58 +148,55 @@ function resolveClash(state: GameState, engine: Engine): Reduction {
     committed[1] === null ? null : cardById(library, committed[1]),
   ];
 
+  const outcome = clashOutcome(cards);
+
   events.push({
     kind: 'clashRevealed',
     round: state.round,
     cards: [committed[0] ?? '', committed[1] ?? ''],
+    winner: outcome.kind === 'decided' ? outcome.winner : null,
+    stalemate: outcome.kind === 'stalemate',
   });
 
   let next = tickCooldowns(state);
 
-  // Conditions are judged against this snapshot only, so nothing either card
-  // does during resolution can change what the other card sees.
+  // Conditions are judged against this snapshot only, so nothing the Winner
+  // does during resolution can change what its own later rules see.
   const snapshotFor = (player: PlayerId): ClashSnapshot => ({
     round: state.round,
     self: { hp: state.players[player].hp, card: cards[player] },
     opponent: { hp: state.players[other(player)].hp, card: cards[other(player)] },
   });
 
-  const firing = ([0, 1] as const).map((player) => {
-    const card = cards[player];
-    if (card === null) return [];
-    return firingRules(card, snapshotFor(player));
-  });
+  // The triangle gates the Clash before any Condition is read: the Loser never
+  // fires, and a Stalemate fires nothing at all. See docs/adr/0004.
+  const won =
+    outcome.kind === 'decided' && cards[outcome.winner] !== null
+      ? { player: outcome.winner, card: cards[outcome.winner]! }
+      : null;
 
-  for (const player of [0, 1] as const) {
-    const card = cards[player];
-    if (card !== null && firing[player]!.length === 0) {
-      events.push({ kind: 'whiffed', player, cardId: card.id });
-    }
+  const firing = won === null ? [] : firingRules(won.card, snapshotFor(won.player));
+
+  if (won !== null && firing.length === 0) {
+    events.push({ kind: 'noEffect', player: won.player, cardId: won.card.id });
   }
 
   // Spending happens before effects so that a Trick which adds cards has
-  // already freed its own slot in Hand.
+  // already freed its own slot in Hand. Losing a Clash still spends the card.
   for (const player of [0, 1] as const) {
     const card = cards[player];
     if (card !== null) next = consumeTrick(next, player, card, events);
   }
 
-  const effectsStart = events.length;
-
-  for (const player of [0, 1] as const) {
-    const card = cards[player];
-    if (card === null) continue;
-
-    for (const rule of firing[player]!) {
+  if (won !== null) {
+    for (const rule of firing) {
       for (const effect of rule.then) {
-        next = applyEffect(next, player, card, effect, { library, ruleSet }, events);
+        next = applyEffect(next, won.player, won.card, effect, { library, ruleSet }, events);
       }
     }
   }
 
-  const clashEvents = events.slice(effectsStart);
-
-  for (const player of coreCooldownTargets(ruleSet, clashEvents)) {
+  for (const player of coreCooldownTargets(ruleSet, outcome)) {
     const card = cards[player];
     if (card === null || card.category !== 'core') continue;
     const rounds = cooldownLengthFor(next, player, ruleSet.cooldownRounds);
@@ -240,15 +224,15 @@ function resolveClash(state: GameState, engine: Engine): Reduction {
   next = updatePlayer(next, 1, { committed: null });
 
   const down: boolean[] = [next.players[0].hp <= 0, next.players[1].hp <= 0];
-  let outcome = next.outcome;
+  let fightOutcome = next.outcome;
 
-  if (down[0] && down[1]) outcome = { kind: 'draw' };
-  else if (down[0]) outcome = { kind: 'winner', player: 1 };
-  else if (down[1]) outcome = { kind: 'winner', player: 0 };
+  if (down[0] && down[1]) fightOutcome = { kind: 'draw' };
+  else if (down[0]) fightOutcome = { kind: 'winner', player: 1 };
+  else if (down[1]) fightOutcome = { kind: 'winner', player: 0 };
 
-  if (outcome !== null) events.push({ kind: 'fightEnded', outcome });
+  if (fightOutcome !== null) events.push({ kind: 'fightEnded', outcome: fightOutcome });
 
-  return { state: { ...next, phase: 'clash', outcome }, events };
+  return { state: { ...next, phase: 'clash', outcome: fightOutcome }, events };
 }
 
 function offerDrafts(state: GameState, engine: Engine): Reduction {

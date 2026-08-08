@@ -1,5 +1,6 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import type { CardDef, CardType } from '../core/cards.ts';
+import { COUNTERS } from '../core/triangle.ts';
 import {
   body,
   BLOOD,
@@ -21,7 +22,7 @@ export interface CardSize {
 }
 
 const TYPE_GLYPH: Record<CardType, string> = { rock: 'R', paper: 'P', scissors: 'S' };
-const TYPE_LABEL: Record<CardType, string> = {
+export const TYPE_LABEL: Record<CardType, string> = {
   rock: 'ROCK',
   paper: 'PAPER',
   scissors: 'SCISSORS',
@@ -113,7 +114,12 @@ export class CardView extends Container {
     glyph.position.set(width / 2, pad + artHeight / 2);
     this.addChild(glyph);
 
-    const type = new Text({ text: TYPE_LABEL[card.type], style: body(13 * scale, '700') });
+    // Printed from the triangle rather than authored, so every card states the
+    // matchup it wins on and no card text has to repeat it.
+    const type = new Text({
+      text: `${TYPE_LABEL[card.type]} BEATS ${TYPE_LABEL[COUNTERS[card.type]]}`,
+      style: body(12 * scale, '700'),
+    });
     type.anchor.set(0.5, 0);
     type.position.set(width / 2, pad + artHeight + 6 * scale);
     this.addChild(type);

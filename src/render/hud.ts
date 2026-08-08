@@ -1,4 +1,5 @@
 import { Container, Graphics, Text } from 'pixi.js';
+import { CORE_IDS } from '../cards/library.ts';
 import type { EchoView } from '../core/view.ts';
 import { body, BLOOD, ECHO, INK, MUTED, PAPER, STROKE, STUN, title } from './theme.ts';
 
@@ -8,6 +9,7 @@ const LINE = 26;
 export interface PlateState {
   hp: number;
   maxHp: number;
+  /** Tricks held, and room for Tricks. The Cores are added on for display. */
   handCount: number;
   handCap: number;
   echoes: readonly EchoView[];
@@ -91,7 +93,10 @@ export class CombatantPlate extends Container {
     this.#hpText.text = `${state.hp} HP`;
     this.#hpText.style.fill = ratio > 0.35 ? PAPER : INK;
 
-    this.#handText.text = `HAND ${state.handCount}/${state.handCap}`;
+    // A Hand is the Cores plus the Tricks beside them, so the plate counts the
+    // cards the player can actually see in their fan.
+    const cores = CORE_IDS.length;
+    this.#handText.text = `HAND ${cores + state.handCount}/${cores + state.handCap}`;
     this.#noteText.text = state.notes.join('   ');
     this.#echoText.text = state.echoes.map((echo) => echo.label).join('\n');
   }

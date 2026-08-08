@@ -25,6 +25,7 @@ export interface HandViewOptions {
   fan: FanOptions;
   interactive: boolean;
   onPick?: (index: number) => void;
+  onHover?: (index: number) => void;
 }
 
 export class HandView extends Container {
@@ -86,6 +87,7 @@ export class HandView extends Container {
 
       if (interactive && entry.playable && entry.lockRounds === 0) {
         view.on('pointerover', () => {
+          if (this.#hovered !== index) this.#options.onHover?.(index);
           this.#hovered = index;
           this.#layout();
         });
